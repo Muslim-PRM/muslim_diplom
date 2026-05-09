@@ -23,16 +23,52 @@ def get_suppliers(request):
 
     client = Client(
         host="https://ollama.com",
-        headers={'Authorization': 'Bearer ' + ''}
+        headers={'Authorization': 'Bearer ' + 'f211216e19154bdda1db4d033dd399b6.BbQ_gVPrB44_QomJcr2NRKzw'}
     )
 
-    prompt = (
-        f"Роль: Ты — эксперт по анализу рынка строительных материалов. Бери информацию настоящую, из интернета, пожалуйста.\n"
-        f"Задача: Подготовить JSON-массив (Как можно больше записей) поставщиков в г. {city}.\n"
-        f"Условия: Специализация '{search}', стаж от {experience} лет, рейтинг от {rating}.\n"
-        f"Связь: {'ТОЛЬКО С ТЕЛЕФОНОМ' if phone_only else 'ТЕЛЕФОН НЕ ОБЯЗАТЕЛЕН'}.\n"
-        f"Формат: Только чистый JSON массив объектов с ключами: name, owner, phone, email, address, city, experience, rating, reviews, description, data_completeness, contacts_presence."
-    )
+    prompt = f"""
+    Ты API.
+
+    ТВОЯ ЗАДАЧА:
+    Вернуть ТОЛЬКО JSON.
+
+    ЗАПРЕЩЕНО:
+    - объяснения
+    - markdown
+    - текст
+    - комментарии
+    - советы
+    - codeblock
+    - ```json
+
+    НУЖНО:
+    Вернуть массив из 20 объектов.
+
+    Можно придумывать данные.
+
+    Формат:
+
+    [
+      {{
+        "name": "Компания",
+        "owner": "Имя",
+        "phone": "+7...",
+        "email": "mail@example.com",
+        "address": "Адрес",
+        "city": "{city}",
+        "experience": 5,
+        "rating": 4.5,
+        "reviews": 100,
+        "description": "Описание"
+      }}
+    ]
+
+    Специализация: {search}
+    Стаж: {experience}
+    Рейтинг: {rating}
+
+    {'Только с телефоном' if phone_only else ''}
+    """
 
     full_content = ""
     try:
@@ -40,6 +76,8 @@ def get_suppliers(request):
         # Если модель поддерживает не-стримовый режим, лучше использовать stream=False для простоты
         for part in client.chat('gpt-oss:120b', messages=[{'role': 'user', 'content': prompt}], stream=True):
             full_content += part['message']['content']
+
+        print(full_content)
 
         # 3. Очищаем ответ от Markdown-разметки (если нейросеть добавила ```json ... ```)
         clean_json = full_content.replace('```json', '').replace('```', '').strip()
