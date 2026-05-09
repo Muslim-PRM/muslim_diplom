@@ -1,59 +1,66 @@
-from django.http import JsonResponse
-from django.shortcuts import render
-import os
-import json
-from ollama import Client
-
-
-def home(request):
-    context = {
-        'title': 'Главная'
-    }
-    return render(request, 'home.html', context)
-
+import re # Добавь этот импорт в начало файла!
 
 def get_suppliers(request):
     # 1. Получаем параметры
     experience = request.GET.get('experience', 'ЛЮБОЙ')
-    # Проверяем на строку 'true', так как URLSearchParams отправляет типы как строки
     phone_only = request.GET.get('phone_only') == 'true'
     rating = request.GET.get('rating', 'ЛЮБОЙ')
     search = request.GET.get('search')
     city = request.GET.get('city', 'Махачкала')
 
     client = Client(
-        host="https://ollama.com",
-        headers={'Authorization': 'Bearer ' + ''}
+        host="https://ollama.com", # Проверь этот хост, обычно Ollama работает локально
+        headers={'Authorization': 'Bearer ' + 'f211216e19154bdda1db4d033dd399b6.BbQ_gVPrB44_QomJcr2NRKzw'}
     )
 
-    prompt = (
-        f"Роль: Ты — эксперт по анализу рынка строительных материалов. Бери информацию настоящую, из интернета, пожалуйста.\n"
-        f"Задача: Подготовить JSON-массив (Как можно больше записей) поставщиков в г. {city}.\n"
-        f"Условия: Специализация '{search}', стаж от {experience} лет, рейтинг от {rating}.\n"
-        f"Связь: {'ТОЛЬКО С ТЕЛЕФОНОМ' if phone_only else 'ТЕЛЕФОН НЕ ОБЯЗАТЕЛЕН'}.\n"
-        f"Формат: Только чистый JSON массив объектов с ключами: name, owner, phone, email, address, city, experience, rating, reviews, description, data_completeness, contacts_presence."
-    )
+    # Снизил количество до 10 для стабильности (20 часто обрываются)
+    prompt = f"""
+    Верни ТОЛЬКО JSON массив из 10 объектов. Без текста до и после.
+    Данные о поставщиках: {search}, город {city}, опыт {experience}, рейтинг {rating}.
+    Формат:
+    [
+      {{
+        "name": "Название",
+        "owner": "Имя",
+        "phone": "Телефон",
+        "email": "Email",
+        "address": "Адрес",
+        "city": "{city}",
+        "experience": 5,
+        "rating": 4.5,
+        "reviews": 10,
+        "description": "Описание"
+      }}
+    ]
+    """
 
-    full_content = ""
     try:
-        # 2. Собираем стрим в одну строку
-        # Если модель поддерживает не-стримовый режим, лучше использовать stream=False для простоты
-        for part in client.chat('gpt-oss:120b', messages=[{'role': 'user', 'content': prompt}], stream=True):
-            full_content += part['message']['content']
+        # Убираем стрим (stream=False), так надежнее для получения чистого JSON
+        response = client.chat(
+            model='-oss:120b', 
+            messages=[{'role': 'user', 'content': prompt}],
+            stream=False 
+        )
+        
+        full_content = response['message']['content']
+        print("ОТВЕТ НЕЙРОСЕТИ:", full_content) # Для отладки в терминале
 
-        # 3. Очищаем ответ от Markdown-разметки (если нейросеть добавила ```json ... ```)
-        clean_json = full_content.replace('```json', '').replace('```', '').strip()
+        # Умная очистка: ищем всё, что находится внутри [ и ]
+        match = re.search(r'\[.*\]', full_content, re.DOTALL)
+        if match:
+            clean_json = match.group(0)
+        else:
+            clean_json = full_content
 
-        # 4. Преобразуем строку в Python-список, чтобы JsonResponse корректно его запаковал
         data_list = json.loads(clean_json)
-
         return JsonResponse({"data": data_list}, safe=False)
 
-    except json.JSONDecodeError:
-        # Если нейросеть выдала текст вместо JSON
+    except json.JSONDecodeError as e:
+        print(f"Ошибка парсинга: {e}")
         return JsonResponse({
-            "error": "Ошибка парсинга JSON",
-            "raw_response": full_content
+            "error": "Нейросеть выдала неверный формат. Попробуйте еще раз.",
+            "raw": full_content[:100] # Показываем начало ошибки
         }, status=500)
     except Exception as e:
+        print(f"Общая ошибка: {e}")
         return JsonResponse({"error": str(e)}, status=500)
